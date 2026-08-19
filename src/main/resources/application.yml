@@ -1,0 +1,44 @@
+server:
+  # 三项目端口梯队：im 9090 / mall 9091 / note 9092
+  port: 9092
+
+spring:
+  application:
+    name: note-server
+
+  datasource:
+    # note 专属 MySQL：宿主机 3309（im 占 3307，mall 占 3308）
+    url: jdbc:mysql://localhost:3309/note_server?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: root
+    password: root123456
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  data:
+    redis:
+      # note 专属 Redis：宿主机 6381（im 占 6379，mall 占 6380）
+      host: localhost
+      port: 6381
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    banner: false
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+jwt:
+  secret: note-server-dev-secret-0123456789abcdef-0123456789abcdef
+  access-ttl-minutes: 120
+  refresh-ttl-days: 14
+
+logging:
+  level:
+    com.example.note: debug

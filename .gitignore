@@ -1,0 +1,13 @@
+# 构建产物 ≈ dist/
+target/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# 系统
+.DS_Store
+
+# 日志
+*.log

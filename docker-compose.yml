@@ -1,0 +1,103 @@
+# note-server 专属环境：与 im(3307/6379)、mall(3308/6380) 完全隔离
+# 本项目新成员：RocketMQ 三件套（NameServer + Broker + Dashboard 控制台）
+#
+# ⚠️ Phase 0 只起 MySQL/Redis 就够跑业务代码；RocketMQ 容器先一并起起来，
+#    你可以打开 http://localhost:8180 玩一下控制台混个眼熟，Phase 1 才真正连它。
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: note-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_DATABASE: note_server
+    ports:
+      - "3309:3306"
+    volumes:
+      - note-mysql-data:/var/lib/mysql
+    # healthcheck：给 app 的 condition:service_healthy 用。
+    # 经典坑：depends_on 只保证「启动顺序」不保证「服务就绪」—— MySQL 首次初始化要 20s+，
+    # app 不等的话一起动就连库失败直接退出（mall 的 compose 就有这个隐患，这里修掉）
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-uroot", "-proot123456"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: note-redis
+    ports:
+      - "6381:6379"
+
+  # ---------- RocketMQ 开始 ----------
+  # 架构直觉（对照 NestJS 的 Bull/Redis 队列）：
+  #   Bull: 一个 Redis 同时当「注册中心 + 存储」
+  #   RocketMQ: 拆成两个角色 —— NameServer(路由注册中心，无状态轻量) + Broker(真正存消息的)
+  #   生产者/消费者都先问 NameServer「topic 在哪个 Broker」，再直连 Broker 收发
+  mq-namesrv:
+    image: apache/rocketmq:5.3.1
+    container_name: note-mq-namesrv
+    command: sh mqnamesrv
+    environment:
+      # 默认 JVM 4G，教学机没必要，调小
+      JAVA_OPT_EXT: "-Xms256m -Xmx256m"
+    ports:
+      - "9876:9876"
+
+  mq-broker:
+    image: apache/rocketmq:5.3.1
+    container_name: note-mq-broker
+    depends_on:
+      - mq-namesrv
+    # ⚠️ 中间件容器通用坑：named volume 首次创建时属主是 root，而镜像用 uid 3000 的
+    #    rocketmq 用户跑 → store/logs 目录写不进 → broker 初始化静默失败（shutdown 时才炸 NPE）。
+    #    首次启动前要先 chown（见 README），这里显式声明用户防患于未然
+    user: "3000:3000"
+    command: sh mqbroker -n note-mq-namesrv:9876 -c /home/rocketmq/conf/broker.conf
+    environment:
+      JAVA_OPT_EXT: "-Xms512m -Xmx512m -Xmn128m"
+    ports:
+      - "10909:10909"   # VIP 通道（listenPort - 2）
+      - "10911:10911"   # 主监听端口
+      - "10912:10912"   # 主从同步端口
+    volumes:
+      - ./rocketmq/broker.conf:/home/rocketmq/conf/broker.conf
+      - note-mq-store:/home/rocketmq/store
+      - note-mq-logs:/home/rocketmq/logs
+
+  # 官方控制台：看 Topic、消息轨迹、消费进度 —— Phase 1 排查问题的主战场
+  # ⚠️ 镜像组织名是 apacherocketmq（Apache 的 Docker Hub 组织），不是 apache —— 拉取 404 的坑
+  mq-console:
+    image: apacherocketmq/rocketmq-dashboard:latest
+    container_name: note-mq-console
+    depends_on:
+      - mq-namesrv
+    environment:
+      JAVA_OPTS: "-Drocketmq.namesrv.addr=note-mq-namesrv:9876"
+    ports:
+      # ⚠️ 新版 dashboard 容器内监听 8082（老版才是 8080，日志里 Tomcat started on port 8082）
+      - "8180:8082"
+  # ---------- RocketMQ 结束 ----------
+
+  app:
+    build: .
+    container_name: note-server-app
+    depends_on:
+      mysql:
+        condition: service_healthy   # 等 MySQL 真正能响应，而不只是容器起来
+      redis:
+        condition: service_started
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/note_server?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      # ⚠️ 宿主机端口约定（6381 是给「跑在宿主机的应用/测试」用的映射端口）不能泄漏进容器网络：
+      #    容器内互通走服务名 + 容器内标准端口 6379。只覆盖 HOST 不覆盖 PORT 的话，
+      #    application.yml 里的 6381 会带进来 → 连 redis:6381 被拒（本坑实测）
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+    ports:
+      - "9092:9092"
+
+volumes:
+  note-mysql-data:
+  note-mq-store:
+  note-mq-logs:
