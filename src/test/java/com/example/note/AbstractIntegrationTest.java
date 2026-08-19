@@ -19,7 +19,9 @@ import org.springframework.test.context.TestPropertySource;
         "spring.datasource.username=root",
         "spring.datasource.password=root123456",
         "spring.data.redis.host=localhost",
-        "spring.data.redis.port=6381"
+        "spring.data.redis.port=6381",
+        // Phase 3 起：测试环境关闭 LikeSyncJob 自动调度（30s 节奏会干扰断言），手动直调 Job 方法
+        "note.job.like-sync-auto=false"
 })
 public abstract class AbstractIntegrationTest {
 

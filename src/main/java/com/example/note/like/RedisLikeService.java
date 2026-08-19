@@ -30,6 +30,12 @@ public class RedisLikeService {
 
     private static final String COUNT_KEY = "note:like:count:";
     private static final String BITMAP_KEY = "note:like:bitmap:";
+    /**
+     * Phase 3 脏标记集合：计数真实变化过的 noteId 进这里，
+     * LikeSyncJob 定时 SPOP 弹出并刷回 MySQL —— 「增量刷新」的地基。
+     * 对照傻办法（全量 SCAN count:* 逐个和库比）：脏集合让刷新量 = 变化量，而不是全量
+     */
+    private static final String DIRTY_KEY = "note:like:dirty";
     /** 回填缓存的 TTL：防冷 key 永驻内存 */
     private static final Duration COUNT_TTL = Duration.ofHours(24);
 
@@ -46,6 +52,7 @@ public class RedisLikeService {
         Boolean wasZero = redis.opsForValue().setBit(bitmap, userId, true);
         if (Boolean.FALSE.equals(wasZero)) {                            // 0→1 才是真·首次点赞
             redis.opsForValue().increment(COUNT_KEY + noteId);
+            markDirty(noteId);
         }
     }
 
@@ -57,6 +64,7 @@ public class RedisLikeService {
         Boolean wasOne = redis.opsForValue().setBit(bitmap, userId, false);   // 清位，旧值 true = 1→0 真取消
         if (Boolean.TRUE.equals(wasOne)) {                              // 1→0 才真·取消
             Long after = redis.opsForValue().decrement(COUNT_KEY + noteId);
+            markDirty(noteId);
             if (after != null && after < 0) {
                 // 防御：异常时序下 DECR 到负数（比如 Redis 数据部分丢失）→ 修正回 0
                 // 正解是 Lua 脚本原子化「查位+清位+减数」三步 —— mall 的秒杀讲过 Lua，这里简化容忍
@@ -83,5 +91,10 @@ public class RedisLikeService {
         long dbCount = note == null ? 0 : note.getLikeCount();
         redis.opsForValue().set(COUNT_KEY + noteId, String.valueOf(dbCount), COUNT_TTL);
         return dbCount;
+    }
+
+    /** 计数真实变化时打脏标记（SADD 是幂等的，重复标无害） */
+    private void markDirty(Long noteId) {
+        redis.opsForSet().add(DIRTY_KEY, String.valueOf(noteId));
     }
 }

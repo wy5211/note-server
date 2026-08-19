@@ -23,11 +23,19 @@ services:
       timeout: 3s
       retries: 20
 
+  # Phase 3 起认真对待 Redis 的命：计数真相源住在里面
+  # 持久化两选项（Phase 3 的核心话题之一）：
+  #   RDB（默认）= 定时快照，宕机丢「最近几分钟」数据；文件小、恢复快
+  #   AOF（下面手动开）= 每条写命令追加日志，每秒 fsync，宕机最多丢 1 秒；文件大、恢复慢
+  # 计数场景选 AOF；再加数据卷让重启不丢 —— 但「持久化≠高可用」，主从/哨兵/集群才是可用性方案
   redis:
     image: redis:7-alpine
     container_name: note-redis
+    command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "6381:6379"
+    volumes:
+      - note-redis-data:/data
 
   # ---------- RocketMQ 开始 ----------
   # 架构直觉（对照 NestJS 的 Bull/Redis 队列）：
@@ -99,5 +107,6 @@ services:
 
 volumes:
   note-mysql-data:
+  note-redis-data:
   note-mq-store:
   note-mq-logs:

@@ -45,4 +45,16 @@ public interface NoteLikeMapper extends BaseMapper<NoteLike> {
      * @return 影响行数
      */
     int batchAddLikeCount(@Param("deltas") Map<Long, Integer> deltas);
+
+    /**
+     * Phase 3：快照式批量 SET 计数（绝对值覆盖，幂等）
+     * @param counts key=noteId, value=Redis 里的当前真值
+     */
+    int batchSetLikeCount(@Param("counts") Map<Long, Long> counts);
+
+    /**
+     * Phase 3：对账 —— 一批笔记在关系表里的真实计数（事实源）
+     * @return [{noteId, cnt}]（没有点赞记录的笔记不会出现在结果里 = 0）
+     */
+    List<Map<String, Object>> countByNoteIds(@Param("noteIds") List<Long> noteIds);
 }

@@ -65,11 +65,33 @@ open http://localhost:8180
 - [x] **Phase 0** 骨架 + 七张表 + 用户/笔记同步版 CRUD（测试 5/5 绿）
 - [x] **Phase 1** RocketMQ 登场：异步改造「三秒发布接口」（测试 8/8 绿）
 - [x] **Phase 2** 点赞三版迭代（测试 13/13 绿 + 压测报告）
-- [ ] Phase 3 刷数据第一课 + 定时任务
+- [x] **Phase 3** 刷数据第一课 + 定时任务（测试 17/17 绿）
 - [ ] Phase 4 Feed 流推拉结合 + 热榜
 - [ ] Phase 5 数据工程周：刷数据/在线迁移/事务传播
 - [ ] Phase 6 分布式事务：本地消息表 vs 事务消息
 - [ ] Phase 7 (可选) Elasticsearch + ShardingSphere
+
+## Phase 3 学到了什么
+
+**还债主线**：Phase 2 让 Redis 当了计数真相源，MySQL 严重落后 —— 本 Phase 用「增量同步 +
+全量对账」双层机制把库里的数追平，这是所有「缓存放写、库兜底」架构的标准闭环。
+
+| 主题 | 落点 |
+|---|---|
+| 增量刷新 | 点赞时 `SADD` 脏集合，`LikeSyncJob` 每 30s `SPOP` 批量弹出 → `MGET` → CASE WHEN 快照刷回 |
+| 刷 vs 攒的语义差 | 快照覆盖（`= value`，幂等）vs 增量累加（`+ delta`）—— 两种刷数据模式的分水岭 |
+| 全量对账 | `LikeReconcileJob` 凌晨 4 点 cron：以 note_like 关系表（事实）核对并修正 like_count（余额）|
+| 游标分页 | `WHERE id > lastId LIMIT 500` 深翻页等成本 —— Phase 5 刷 500w 行的预演 |
+| 分布式锁 | Redisson `tryLock(0, 600, SECONDS)`：抢不到就走。「SPOP 原子取走型任务不用锁、扫描处理型必须锁」的辨析 |
+| cron 表达式 | `0 0 4 * * ?` 首次出场（秒分时日月周；日周冲突让位用 `?`）|
+| Redis 持久化 | compose 开 AOF + 数据卷：RDB 快照 vs AOF 追加日志的取舍；持久化 ≠ 高可用 |
+| 幂等方案三号 | 快照覆盖（前有：条件更新状态机、affected 锚定增量）—— 凑齐三种姿势 |
+
+**对账的哲学**（账务系统通用）：流水（note_like）永远是对的，余额（like_count）错了就从流水重算。
+增量同步管效率，全量对账管兜底 —— 少了后者，任何一次进程崩溃/手滑改库都会永远错下去。
+
+**定时任务的测试姿势**：自动调度在测试环境关掉（`note.job.like-sync-auto=false`），
+直接注入 Job 调 public 方法断言 —— 所以任务的业务方法务必可独立调用（也好运维手动补跑）。
 
 ## Phase 2 学到了什么
 

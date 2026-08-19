@@ -41,4 +41,34 @@
             #{noteId}
         </foreach>
     </update>
+    <!--
+      Phase 3 新增：快照式批量 SET（绝对值，非增量）
+      语义区别要看清 —— 这是「刷数据」与「攒批」的分水岭：
+        batchAddLikeCount（上面）：+delta，适用于「这条消息代表一次确定的变化」（Phase 2 攒批）
+        batchSetLikeCount（这里）：= value，适用于「以某处为准的全量覆盖」（Phase 3 把 Redis 真相刷回库）
+      快照覆盖天然幂等：跑一百遍，结果都是最后一次的值
+    -->
+    <update id="batchSetLikeCount">
+        UPDATE note SET like_count =
+        CASE id
+        <foreach collection="counts" index="noteId" item="value">
+            WHEN #{noteId} THEN #{value}
+        </foreach>
+        END
+        WHERE id IN
+        <foreach collection="counts" index="noteId" item="value" open="(" close=")" separator=",">
+            #{noteId}
+        </foreach>
+    </update>
+
+    <!-- 对账用：一批笔记的关系表真实计数（note_like 是「事实」，事实永远是对的） -->
+    <select id="countByNoteIds" resultType="map">
+        SELECT note_id AS noteId, COUNT(*) AS cnt
+        FROM note_like
+        WHERE note_id IN
+        <foreach collection="noteIds" item="id" open="(" close=")" separator=",">
+            #{id}
+        </foreach>
+        GROUP BY note_id
+    </select>
 </mapper>
