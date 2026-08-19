@@ -19,6 +19,9 @@ public final class MqTopics {
     /** 审核超时检查（延迟消息专用 topic） */
     public static final String NOTE_REVIEW_TIMEOUT = "note-review-timeout";
 
+    /** 点赞事件（Phase 2 削峰主场：洪峰进队列，消费者攒批匀速落库） */
+    public static final String NOTE_LIKE = "note-like";
+
     /** 图片消费组的死信队列：RocketMQ 约定名 %DLQ%{consumerGroup}，16 次重试都失败的消息最终流到这里 */
     public static final String IMAGE_DLQ = "%DLQ%note-image-group";
 
@@ -26,6 +29,7 @@ public final class MqTopics {
     public static final String REVIEW_GROUP = "note-review-group";
     public static final String IMAGE_GROUP = "note-image-group";
     public static final String REVIEW_TIMEOUT_GROUP = "note-review-timeout-group";
+    public static final String LIKE_GROUP = "note-like-group";
 
     private MqTopics() {
     }

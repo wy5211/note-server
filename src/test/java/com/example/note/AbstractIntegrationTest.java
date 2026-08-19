@@ -1,5 +1,8 @@
 package com.example.note;
 
+import com.example.note.note.entity.Note;
+import com.example.note.note.mapper.NoteMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.TestPropertySource;
@@ -22,4 +25,33 @@ public abstract class AbstractIntegrationTest {
 
     @LocalServerPort
     protected int port;
+
+    @Autowired
+    protected NoteMapper noteMapper;
+
+    /**
+     * 绕过发布链路直插笔记 —— 测试数据准备的标准姿势（不依赖 MQ/审核时序，完全可控）。
+     * userId 填 999（无外键约束，详情页显示「未知用户」不影响断言）
+     */
+    protected Long insertNote(String title, String content, int status) {
+        Note note = new Note();
+        note.setUserId(999L);
+        note.setTitle(title);
+        note.setContent(content);
+        note.setStatus(status);
+        note.setLikeCount(0);
+        note.setCollectCount(0);
+        note.setCommentCount(0);
+        note.setReadCount(0);
+        noteMapper.insert(note);
+        return note.getId();
+    }
+
+    protected void sleep(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
 }

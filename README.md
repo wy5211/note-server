@@ -64,12 +64,53 @@ open http://localhost:8180
 
 - [x] **Phase 0** 骨架 + 七张表 + 用户/笔记同步版 CRUD（测试 5/5 绿）
 - [x] **Phase 1** RocketMQ 登场：异步改造「三秒发布接口」（测试 8/8 绿）
-- [ ] Phase 2 点赞三版迭代（压测驱动）
+- [x] **Phase 2** 点赞三版迭代（测试 13/13 绿 + 压测报告）
 - [ ] Phase 3 刷数据第一课 + 定时任务
 - [ ] Phase 4 Feed 流推拉结合 + 热榜
 - [ ] Phase 5 数据工程周：刷数据/在线迁移/事务传播
 - [ ] Phase 6 分布式事务：本地消息表 vs 事务消息
 - [ ] Phase 7 (可选) Elasticsearch + ShardingSphere
+
+## Phase 2 学到了什么
+
+**演进主线**：一个点赞接口，三版实现共存，配置切换（`note.like.mode`），压测数字说话。
+
+| 版本 | 实现 | QPS | p99 | 一句话 |
+|---|---|---|---|---|
+| V1 `v1_db` | 每次点赞 2 条 SQL（关系+计数） | 1,275 | 389ms | 行锁串行 + 连接池排队，热帖必挂 |
+| V2 `v2_redis` | INCR 计数 + BitMap 是否赞过 | 8,733 (6.8x) | 78ms | 快是快，库里的数永远落后 |
+| V3 `v3_mq` | Redis 秒回 + MQ 攒批落库 | 4,158 (3.3x) | 98ms | 洪峰入队，下游匀速 |
+
+（数字为教学机本地量级参考；V3 比 V2 慢是每次多付一次 `syncSend` 同步确认——真实高吞吐换
+异步发送即可逼近 V2，吞吐与可靠性的选择题）
+
+**削峰的数学证明**（压测日志原文）：1 万条点赞消息 → 2 轮 flush → 每轮几条批量 SQL
+（`INSERT IGNORE` 按笔记分组 + `CASE WHEN` 一条摊平计数），对比 V1 的 2 万条独立 SQL。
+
+| 主题 | 落点 |
+|---|---|
+| 首次引入 XML Mapper | `NoteLikeMapper.xml`：批量 INSERT IGNORE / 行构造器 DELETE / CASE WHEN 批量 UPDATE |
+| 幂等之锚 | affected 返回值是唯一可信源（uk_user_note 兜住消息重复投递） |
+| BitMap | 500w 用户一篇笔记的点赞记录 ≈ 625KB |
+| 削峰填谷 | `LikeFlushService`：内存队列 + 2s 定时 drain + 分组批量落库 |
+| @EnableScheduling | 定时任务第一次亮灯（Phase 3 的前哨） |
+| 降级复用 | MQ 发送失败 → 退化为 V1 直写（数据不丢） |
+
+跑压测：`./mvnw test -Dtest=LikeLoadTest -Dload=true`（默认不进 CI，结果受机器状态影响）
+
+## Phase 2 踩坑档案
+
+8. **javadoc 里写 ant 通配符路径**（如 `classpath` 后跟 `mapper/**/x.xml`）：其中的 `*/` 会把
+   注释提前闭合，后面的中文全变「非法字符 ）」—— 编译器报这个错先想注释截断
+9. **Spring Data Redis 的 `setBit` 没有两参重载**：置位必须 `setBit(key, offset, true)`，
+   旧值从返回值拿（`Boolean`）；漏传 value 参数编译才炸
+10. **新 topic 冷启动再现**：note-like 首测 15s 断言等不到消费——老朋友 30s 路由刷新。
+    本次用生产正解收尾：`mqadmin updateTopic` 预建 topic（见下方命令）
+
+```bash
+# 预建 topic（生产环境的正确姿势：Topic 管控，不靠 autoCreate）
+docker exec note-mq-broker sh -c 'sh mqadmin updateTopic -n note-mq-namesrv:9876 -c DefaultCluster -t note-like'
+```
 
 ## Phase 1 学到了什么
 

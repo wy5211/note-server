@@ -121,21 +121,7 @@ class NoteMqE2ETest extends AbstractIntegrationTest {
     }
 
     // ---------- 小工具 ----------
-
-    /** 绕过发布链路直插笔记（测试专用的数据准备姿势） */
-    private Long insertNote(String title, String content, int status) {
-        Note note = new Note();
-        note.setUserId(999L);
-        note.setTitle(title);
-        note.setContent(content);
-        note.setStatus(status);
-        note.setLikeCount(0);
-        note.setCollectCount(0);
-        note.setCommentCount(0);
-        note.setReadCount(0);
-        noteMapper.insert(note);
-        return note.getId();
-    }
+    // insertNote / sleep 已上提 AbstractIntegrationTest（LikeFlowE2ETest 也要用，三份重复不如一份公共）
 
     private void insertImage(Long noteId, String url, int sort) {
         NoteImage img = new NoteImage();
@@ -167,13 +153,5 @@ class NoteMqE2ETest extends AbstractIntegrationTest {
         ResponseEntity<Map> login = http.postForEntity(url("/api/auth/login"),
                 new HttpEntity<>(Map.of("username", username, "password", "pass123456"), jsonHeaders), Map.class);
         return (String) ((Map<?, ?>) login.getBody().get("data")).get("accessToken");
-    }
-
-    private void sleep(long ms) {
-        try {
-            Thread.sleep(ms);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
     }
 }

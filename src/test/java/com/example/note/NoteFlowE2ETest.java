@@ -175,14 +175,6 @@ class NoteFlowE2ETest extends AbstractIntegrationTest {
         return false;
     }
 
-    private void sleep(long ms) {
-        try {
-            Thread.sleep(ms);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
     private int bodyCode(ResponseEntity<Map> r) {
         return (Integer) r.getBody().get("code");
     }

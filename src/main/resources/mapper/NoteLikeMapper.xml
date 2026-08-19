@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  手写 SQL 的主场：批量语义 + 精确控制 affected 返回值。
+  动态 SQL 标签 <foreach> ≈ 手写 SQL 时的 in 子句展开器（实体字段一行一值拼成 VALUES）
+
+  项目里第一次出现 XML mapper —— 国内主流形态就是「MP 便捷单表 + XML 复杂批量」混用
+-->
+<mapper namespace="com.example.note.like.mapper.NoteLikeMapper">
+
+    <!-- 批量插入；IGNORE 让撞 uk_user_note 的行静默跳过而非报错 -->
+    <insert id="insertIgnoreBatch">
+        INSERT IGNORE INTO note_like (user_id, note_id, created_at) VALUES
+        <foreach collection="pairs" item="p" separator=",">
+            (#{p.userId}, #{p.noteId}, NOW())
+        </foreach>
+    </insert>
+
+    <!-- 行构造器 IN：MySQL 支持 (a,b) IN ((1,2),(3,4)) 元组比较 -->
+    <delete id="deletePairs">
+        DELETE FROM note_like WHERE (user_id, note_id) IN
+        <foreach collection="pairs" item="p" open="(" close=")" separator=",">
+            (#{p.userId}, #{p.noteId})
+        </foreach>
+    </delete>
+
+    <!--
+      CASE WHEN 批量更新：一条 SQL 给不同行加不同增量。
+      对照「N 篇笔记 = N 条 UPDATE」：网络往返 N 次 → 1 次，这就是攒批的含金量。
+      Phase 3 的 Redis→MySQL 计数刷新也是这个套路
+    -->
+    <update id="batchAddLikeCount">
+        UPDATE note SET like_count = like_count +
+        CASE id
+        <foreach collection="deltas" index="noteId" item="delta">
+            WHEN #{noteId} THEN #{delta}
+        </foreach>
+        END
+        WHERE id IN
+        <foreach collection="deltas" index="noteId" item="delta" open="(" close=")" separator=",">
+            #{noteId}
+        </foreach>
+    </update>
+</mapper>
