@@ -38,6 +38,7 @@ public class NoteService {
     private final NoteImageMapper noteImageMapper;
     private final UserMapper userMapper;
     private final NoteEventProducer noteEventProducer;
+    private final org.springframework.data.redis.core.StringRedisTemplate redis;
 
     /**
      * 发布笔记（异步版）：事务体瘦身成「纯 DB 写」，耗时外部调用全部出走 MQ。
@@ -76,17 +77,37 @@ public class NoteService {
         return toVO(note, null, dto.getImages() == null ? List.of() : dto.getImages());
     }
 
-    /** 详情 */
-    public NoteVO detail(Long noteId) {
+    /**
+     * 详情（Phase 4 加阅读量统计：HyperLogLog）
+     *
+     * ── 为什么阅读量用 HyperLogLog ────────────────────────────────
+     *   阅读数的产品语义是「去重 UV」，一个用户刷 100 次只算 1。
+     *   精确去重要 Set（一个热帖百万人 = Set 几百 MB）；HyperLogLog 用
+     *   固定 12KB 就能估算任意基数，标准误差 0.81% ——
+     *   「阅读数 1,000,013 还是 1,000,821 用户根本无感」的场景，近似就是免费午餐
+     *   （对照 BitMap：点赞要精确到人必须用位图；阅读只要量级，HLL 够了 —— 精度换空间的连续谱）
+     *
+     * @param visitor 访客标识：登录用户 u{userId}，游客 ip{x.x.x.x}（UV 的分母口径）
+     */
+    public NoteVO detail(Long noteId, String visitor) {
         Note note = noteMapper.selectById(noteId);
         if (note == null) {
             throw BusinessException.notFound(40402, "笔记不存在");
         }
+
+        // PFADD：计入本次访问（幂等：同一 visitor 重复 add 不增计数 —— 天然去重）
+        String readKey = "note:read:" + noteId;
+        redis.opsForHyperLogLog().add(readKey, visitor);
+
         List<String> images = noteImageMapper.selectList(Wrappers.<NoteImage>lambdaQuery()
                         .eq(NoteImage::getNoteId, noteId)
                         .orderByAsc(NoteImage::getSort))
                 .stream().map(NoteImage::getUrl).toList();
-        return toVO(note, findAuthorNickname(note.getUserId()), images);
+
+        NoteVO vo = toVO(note, findAuthorNickname(note.getUserId()), images);
+        // PFCOUNT 读近似 UV 展示（库里 read_count 列的回写按 Phase 3 套路走定时任务，教学从简）
+        vo.setReadCount(redis.opsForHyperLogLog().size(readKey).intValue());
+        return vo;
     }
 
     /**

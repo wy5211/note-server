@@ -33,10 +33,18 @@ public class NoteController {
         return Result.ok(noteService.publish(user.userId(), dto));
     }
 
-    /** 详情 */
+    /**
+     * 详情（游客可看）。visitor 标识用于阅读量 UV：登录用户 > u{id}，游客 > ip
+     * HttpServletRequest 是 Servlet 原生对象 —— Spring MVC 可以直接声明进方法签名
+     */
     @GetMapping("/{id}")
-    public Result<NoteVO> detail(@PathVariable Long id) {
-        return Result.ok(noteService.detail(id));
+    public Result<NoteVO> detail(@PathVariable Long id,
+                                 @CurrentUser LoginUser user,
+                                 jakarta.servlet.http.HttpServletRequest request) {
+        String visitor = user != null
+                ? "u" + user.userId()
+                : "ip" + request.getRemoteAddr();
+        return Result.ok(noteService.detail(id, visitor));
     }
 
     /** 发现页（时间流） */

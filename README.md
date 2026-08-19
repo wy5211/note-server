@@ -66,10 +66,37 @@ open http://localhost:8180
 - [x] **Phase 1** RocketMQ 登场：异步改造「三秒发布接口」（测试 8/8 绿）
 - [x] **Phase 2** 点赞三版迭代（测试 13/13 绿 + 压测报告）
 - [x] **Phase 3** 刷数据第一课 + 定时任务（测试 17/17 绿）
-- [ ] Phase 4 Feed 流推拉结合 + 热榜
+- [x] **Phase 4** Feed 流推拉结合 + 热榜（测试 22/22 绿）
 - [ ] Phase 5 数据工程周：刷数据/在线迁移/事务传播
 - [ ] Phase 6 分布式事务：本地消息表 vs 事务消息
 - [ ] Phase 7 (可选) Elasticsearch + ShardingSphere
+
+## Phase 4 学到了什么
+
+| 主题 | 落点 |
+|---|---|
+| 推拉结合 | 素人发笔记写扩散进粉丝收件箱（ZSET inbox，score=noteId）；大 V（粉丝>1000）不推，读时现查 —— `FeedPushService` / `FeedService` 两路合并 |
+| 收件箱设计 | ZSET 有界队列（保留最近 1000 条防膨胀）；pipeline 批量投递 |
+| 写时宽松读时严格 | 推扩散不等审核完成（消费时序早于审核），驳回笔记靠读时 filter —— 微博对删除/屏蔽内容的同款姿态 |
+| 游标分页 | `nextCursor`（noteId）代替页码：Feed 活水下页码会重复/漏，cursor 永远稳；SQL 的 `id < cursor` 与 ZSET 的 `score < cursor` 同一心思 |
+| 热榜 | `RankingJob` 每 5 分钟：互动加权（收藏3>评论2>赞1）/ 年龄衰减 `(h+2)^1.5`，快照式重写 ZSET，读接口毫秒级 |
+| HyperLogLog | 阅读量 UV：12KB 固定空间估算任意基数，0.81% 误差 —— 「精度换空间」谱系（BitMap 精确 → HLL 近似） |
+| 解耦复利 | FeedPushConsumer 是 note-publish 的第三个消费组，发布方零改动兑现 Phase 1 承诺 |
+
+**热榜公式的手感**（注释里有完整心算）：10 万赞的 3 天旧帖（314 分）险胜 300 赞的新帖（212 分）——
+时间衰减不是杀死旧内容，而是让新内容有出头之日。
+
+## Phase 4 踩坑档案
+
+11. **`ZSetOperations.reverseRangeByScore` 只有 double 闭区间重载**（3.5.0 亲测，Range/String
+    版不在该接口上）：开区间语义用「整数 score 下 `max = cursor - 0.5`」数学等效换算
+12. **游标闭区间导致翻页重复**：cursor 那条会原样出现在下一页第一条 —— 上面换算的由来，
+    测试 `feed_pagination_uses_cursor_without_overlap` 抓出来的
+13. **IDE 的 ECJ 与 Maven javac 混编 target**：IDE 后台把带「编译占位 Error」的类写进
+    target/classes，运行时炸 `Unresolved compilation problems` 且干扰增量编译判断 ——
+    症状诡异时 `mvnw clean test` 原子跑一遍再下结论
+14. **热榜/排序类测试要考虑历史数据污染**：压测遗留的 300 篇笔记分数会霸榜 ——
+    造数要么量级碾压要么测试内清场，排序断言才可信
 
 ## Phase 3 学到了什么
 

@@ -31,6 +31,9 @@ public class NoteVO {
 
     private Integer commentCount;
 
+    /** 阅读量：详情页展示 HyperLogLog 的近似 UV（Phase 4），列表页是库里的旧值 */
+    private Integer readCount;
+
     private List<String> images;
 
     private LocalDateTime createdAt;

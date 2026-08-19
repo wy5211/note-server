@@ -31,6 +31,13 @@ public final class MqTopics {
     public static final String REVIEW_TIMEOUT_GROUP = "note-review-timeout-group";
     public static final String LIKE_GROUP = "note-like-group";
 
+    /**
+     * Phase 4 新消费组：Feed 写扩散。
+     * 兑现 Phase 1 的承诺 —— 「以后加下游 = 新增消费组，发布方一行不改」：
+     * FeedPushConsumer 订阅的还是 note-publish，NoteService/Producer 零改动
+     */
+    public static final String FEED_GROUP = "note-feed-group";
+
     private MqTopics() {
     }
 }

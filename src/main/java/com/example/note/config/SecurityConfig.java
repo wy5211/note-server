@@ -44,7 +44,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/register", "/api/auth/login",
                                 "/api/health", "/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         // 游客可以刷内容，但不能创作 —— 社区产品的通用姿态
-                        .requestMatchers(HttpMethod.GET, "/api/notes/**", "/api/users/**").permitAll()
+                        // （/api/ranking 热榜是公共内容；/api/feed 是个人时间线，必须登录）
+                        .requestMatchers(HttpMethod.GET, "/api/notes/**", "/api/users/**", "/api/ranking/**").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(e -> e.authenticationEntryPoint(entryPoint))
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
