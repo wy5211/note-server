@@ -39,6 +39,22 @@ jwt:
   access-ttl-minutes: 120
   refresh-ttl-days: 14
 
+# RocketMQ 客户端（对照 Bull 在 AppModule 里 BullModule.forRoot({ connection })）
+rocketmq:
+  # NameServer 地址：先问路，再走路（客户端从这拿到 topic → broker 的路由）
+  name-server: localhost:9876
+  producer:
+    # 生产者组：主要用途是运维排查时按组定位（发消息必须绑组）
+    group: note-producer
+    send-message-timeout: 3000
+
+# 业务化 MQ 配置：延迟级别等尽量可配，测试环境会用属性覆盖成秒级
+note:
+  mq:
+    # RocketMQ 经典 18 级延迟：1s 5s 10s 30s 1m 2m 3m 4m 5m 6m 7m 8m 9m 10m 20m 30m 1h 2h
+    # 4 = 30s：笔记发布 30s 后仍「审核中」→ 超时消费者接手进人工队列（测试覆盖为 1s）
+    review-timeout-delay-level: 4
+
 logging:
   level:
     com.example.note: debug

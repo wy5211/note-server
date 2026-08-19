@@ -9,6 +9,7 @@ import com.example.note.note.entity.Note;
 import com.example.note.note.entity.NoteImage;
 import com.example.note.note.mapper.NoteImageMapper;
 import com.example.note.note.mapper.NoteMapper;
+import com.example.note.note.mq.NoteEventProducer;
 import com.example.note.user.entity.User;
 import com.example.note.user.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
@@ -22,14 +23,11 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * 笔记服务 —— Phase 0 同步版（故意的「病态实现」，Phase 1 的手术对象）
+ * 笔记服务 —— Phase 1 异步版（对照 git 历史看 Phase 0 的同步病态版，差异就是整个 Phase 的教学）
  *
- * ⚠️ 故意留下的病灶（现在能跑，但想象一下日活百万的社区）：
- *   1. publish() 里同步调敏感词审核 —— 审核服务抖一下，发布接口跟着抖/挂（耦合外部依赖）
- *   2. publish() 里同步 sleep 压图片 —— 用户点「发布」要盯着转圈 1~2 秒
- *   3. 全部挤在一个 HTTP 请求线程里 —— Tomcat 线程池 200 个，50 个并发发布就把池子占满，
- *      整个服务（包括刷笔记的游客）一起陪葬
- * 「同步世界到极限」的样子见过了，Phase 1 用 MQ 把「发布」和「审核+图片处理」拆开。
+ * 改造前（同步版）：一个请求里 建笔记→审内容→压图片，带图 RT 600ms+，审核挂=发布挂
+ * 改造后（事件驱动）：事务只做「落库原图 + status=1 审核中」，commit 后发事件，秒回；
+ *   审核组、图片组各自消费，互不拖累 —— 用户的体验从「盯着转圈」变成「发完就见到（审核中）」
  */
 @Slf4j
 @Service
@@ -39,16 +37,13 @@ public class NoteService {
     private final NoteMapper noteMapper;
     private final NoteImageMapper noteImageMapper;
     private final UserMapper userMapper;
-    private final SensitiveWordChecker sensitiveWordChecker;
-    private final ImageProcessor imageProcessor;
+    private final NoteEventProducer noteEventProducer;
 
     /**
-     * 发布笔记（同步病态版）：
-     * 一个事务里干三件事 —— 建笔记、审内容、压图片 —— 事务/请求/外部调用全绑死。
+     * 发布笔记（异步版）：事务体瘦身成「纯 DB 写」，耗时外部调用全部出走 MQ。
      *
-     * @Transactional 复习（mall 讲过）：方法内所有 DB 操作同生共死。
-     * 这里还有个隐藏教学点：事务里含 sleep —— 事务持有连接的时间 = 全程，
-     * 连接池就那么多，这叫「大事务」，Phase 5 会专门动刀。
+     * 注意原图是直接入库的（图片处理 = 后台改写 URL），不是「等处理完再入库」——
+     * 用户立即能在详情页看到原图，处理完成后 URL 变压缩版，体验无缝。
      */
     @Transactional
     public NoteVO publish(Long userId, NoteCreateDTO dto) {
@@ -57,32 +52,28 @@ public class NoteService {
         note.setTitle(dto.getTitle());
         note.setContent(dto.getContent());
         note.setTopic(dto.getTopic());
-        note.setStatus(Note.STATUS_REVIEWING);        // 先进「审核中」
+        note.setStatus(Note.STATUS_REVIEWING);        // 秒回的代价：返回时是「审核中」，稍后自动流转
         note.setLikeCount(0);
         note.setCollectCount(0);
         note.setCommentCount(0);
         note.setReadCount(0);
         noteMapper.insert(note);
 
-        // 病灶 1：同步审核（外部依赖挡在主链路）
-        boolean clean = sensitiveWordChecker.isClean(dto.getTitle(), dto.getContent());
-
-        // 病灶 2：同步图片处理（sleep 等它）
-        List<String> processed = imageProcessor.process(dto.getImages());
-        for (int i = 0; i < processed.size(); i++) {
-            NoteImage img = new NoteImage();
-            img.setNoteId(note.getId());
-            img.setUrl(processed.get(i));
-            img.setSort(i);
-            noteImageMapper.insert(img);
+        if (dto.getImages() != null) {
+            for (int i = 0; i < dto.getImages().size(); i++) {
+                NoteImage img = new NoteImage();
+                img.setNoteId(note.getId());
+                img.setUrl(dto.getImages().get(i));   // 原图入库，异步处理后改写成压缩版
+                img.setSort(i);
+                noteImageMapper.insert(img);
+            }
         }
 
-        // 审核结论直接定生死（Phase 1 改为异步回写，用户秒回、稍后看到状态变化）
-        note.setStatus(clean ? Note.STATUS_PUBLISHED : Note.STATUS_REJECTED);
-        noteMapper.updateById(note);
+        // 事务提交后才发事件（原因见 NoteEventProducer 决策 1）
+        noteEventProducer.publishAfterCommit(note.getId());
 
-        log.debug("笔记发布完成 id={} status={}（同步版：用户等了整条链路）", note.getId(), note.getStatus());
-        return toVO(note, null, processed);
+        log.debug("笔记已受理（审核中）id={} —— 接口返回，后续交给 MQ", note.getId());
+        return toVO(note, null, dto.getImages() == null ? List.of() : dto.getImages());
     }
 
     /** 详情 */

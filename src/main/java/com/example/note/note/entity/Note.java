@@ -31,7 +31,10 @@ public class Note {
      * 状态流转（Phase 1 的主场）：
      *   0 草稿 --发布--> 1 审核中 --通过--> 2 已发布
      *                     └----驳回----> 3 已驳回
-     * mall 的 OrderStatus 状态机复习：状态只前进不跳跃，每次流转都是显式的一次 UPDATE
+     *   1 审核中 --超时(延迟消息触发)--> 4 人工审核中（Phase 1 新增）
+     *
+     * mall 的 OrderStatus 状态机复习：状态只前进不跳跃，每次流转都是显式的一次 UPDATE。
+     * 条件更新（WHERE status=当前态）还顺手解决了消费幂等 —— 见 ReviewService
      */
     private Integer status;
 
@@ -39,6 +42,7 @@ public class Note {
     public static final int STATUS_REVIEWING = 1;
     public static final int STATUS_PUBLISHED = 2;
     public static final int STATUS_REJECTED = 3;
+    public static final int STATUS_MANUAL_REVIEW = 4;
 
     /**
      * 四个冗余计数：真实值活在 Redis（Phase 2/3），这里的值由定时任务批量刷回。

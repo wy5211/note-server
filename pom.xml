@@ -28,6 +28,7 @@
         <mybatis-plus.version>3.5.7</mybatis-plus.version>
         <springdoc.version>2.8.9</springdoc.version>
         <jjwt.version>0.12.6</jjwt.version>
+        <rocketmq-spring.version>2.3.5</rocketmq-spring.version>
         <!-- Redisson 4.7.0：与 mall-server 踩坑结论对齐（3.x 与 Boot 3.5 不兼容，见 mall 备忘） -->
         <redisson.version>4.7.0</redisson.version>
     </properties>
@@ -54,7 +55,14 @@
             <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
 
-        <!-- Phase 1 预告：rocketmq-spring-boot-starter 将在这里登场 -->
+        <!-- Phase 1 正式登场：RocketMQ 官方 Spring Boot starter
+             ≈ NestJS 的 @nestjs/bull + BullMQ（一个 starter 拿到 生产者模板 + 消费者注解）
+             版本注：2.3.x 起支持 Boot 3；内置 rocketmq-client 5.x，与 broker 5.3.1 协议兼容 -->
+        <dependency>
+            <groupId>org.apache.rocketmq</groupId>
+            <artifactId>rocketmq-spring-boot-starter</artifactId>
+            <version>${rocketmq-spring.version}</version>
+        </dependency>
 
         <!-- Redisson：Phase 3 定时任务分布式锁时登场（沿用 mall 的成熟版本） -->
         <dependency>

@@ -63,13 +63,40 @@ open http://localhost:8180
 ## Phase 进度
 
 - [x] **Phase 0** 骨架 + 七张表 + 用户/笔记同步版 CRUD（测试 5/5 绿）
-- [ ] Phase 1 RocketMQ 登场：异步改造「三秒发布接口」
+- [x] **Phase 1** RocketMQ 登场：异步改造「三秒发布接口」（测试 8/8 绿）
 - [ ] Phase 2 点赞三版迭代（压测驱动）
 - [ ] Phase 3 刷数据第一课 + 定时任务
 - [ ] Phase 4 Feed 流推拉结合 + 热榜
 - [ ] Phase 5 数据工程周：刷数据/在线迁移/事务传播
 - [ ] Phase 6 分布式事务：本地消息表 vs 事务消息
 - [ ] Phase 7 (可选) Elasticsearch + ShardingSphere
+
+## Phase 1 学到了什么
+
+**改造主线**：发布接口从「同步审核+同步压图（带图 RT ≥600ms）」变成「事务落库 → commit 后发事件 → 秒回」，
+审核和图片处理各自成为独立消费组后台消化 —— 用户看到的状态从「盯着转圈」变成「发完即见（审核中）」。
+
+| 主题 | 落点 |
+|---|---|
+| 事务提交后发消息 | `NoteEventProducer.publishAfterCommit`（防「消费者查库扑空」） |
+| 发送失败降级 | `NoteEventProducer.degrade`（MQ 挂了本地同步兜底） |
+| 延迟消息 | 发布时发 30s 延迟检查，卡「审核中」自动转人工（status=4） |
+| 幂等方案 A：条件更新 | `ReviewService.review`（WHERE status=1 天然幂等，零额外设施） |
+| 幂等方案 B：Redis SETNX | `ImageProcessService`（含「失败要还标记」的经典坑处理） |
+| 消费失败 → 重试 → 死信 | 图片消费者对标题含 `poison` 的笔记抛异常，走完整重试链路 |
+| 死信告警 | `DlqAlarmConsumer` 盯 `%DLQ%note-image-group` |
+
+**动手观察死信链路**：发一篇标题带 `poison` 的笔记，然后开 http://localhost:8180
+→ Topic 里搜 `%RETRY%note-image-group`（重试中）和 `%DLQ%note-image-group`（16 次重试失败后的遗骸）。
+注意：重试只在消费者在线时推进——本地把应用跑起来它才会继续走完。
+
+## Phase 1 踩坑档案
+
+6. **rocketmq-spring 带 delayLevel 的 `syncSend` 重载**收的是 Spring Messaging 的 `Message`，
+   要 `MessageBuilder.withPayload(...).build()` 包装，直接传对象编译不过
+7. **消费者先于 topic 就绪的时序坑**：autoCreateTopicEnable 模式下 topic 由 producer 首发消息创建，
+   先启动的消费者拿不到路由，要等 30s 刷新周期 —— 首次跑测试会「莫名超时 10s+」，
+   topic 建好后永久存在，之后都是秒级。生产正解：topic 预先建好 + autoCreateTopicEnable=false
 
 ## Phase 0 踩坑档案（都有教学价值）
 
