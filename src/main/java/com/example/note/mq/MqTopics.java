@@ -22,6 +22,12 @@ public final class MqTopics {
     /** 点赞事件（Phase 2 削峰主场：洪峰进队列，消费者攒批匀速落库） */
     public static final String NOTE_LIKE = "note-like";
 
+    /** 发布奖励事件（Phase 6 分布式事务：本地消息表 / 事务消息 两方案的载体） */
+    public static final String POINT_REWARD = "point-reward";
+
+    /** 评论创建事件（Phase 6 顺序消息：按 noteId 进同队列，楼层号才有意义） */
+    public static final String COMMENT_CREATE = "comment-create";
+
     /** 图片消费组的死信队列：RocketMQ 约定名 %DLQ%{consumerGroup}，16 次重试都失败的消息最终流到这里 */
     public static final String IMAGE_DLQ = "%DLQ%note-image-group";
 
@@ -30,6 +36,8 @@ public final class MqTopics {
     public static final String IMAGE_GROUP = "note-image-group";
     public static final String REVIEW_TIMEOUT_GROUP = "note-review-timeout-group";
     public static final String LIKE_GROUP = "note-like-group";
+    public static final String POINT_REWARD_GROUP = "point-reward-group";
+    public static final String COMMENT_GROUP = "comment-group";
 
     /**
      * Phase 4 新消费组：Feed 写扩散。

@@ -21,7 +21,9 @@ import org.springframework.test.context.TestPropertySource;
         "spring.data.redis.host=localhost",
         "spring.data.redis.port=6381",
         // Phase 3 起：测试环境关闭 LikeSyncJob 自动调度（30s 节奏会干扰断言），手动直调 Job 方法
-        "note.job.like-sync-auto=false"
+        "note.job.like-sync-auto=false",
+        // Phase 6：本地消息中继同理，测试手动调 relayOnce()
+        "note.job.local-msg-relay-auto=false"
 })
 public abstract class AbstractIntegrationTest {
 

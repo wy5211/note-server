@@ -80,7 +80,7 @@ class NoteFlowE2ETest extends AbstractIntegrationTest {
         assertThat(done).as("审核消费者应在 40s 内流转为已发布（含首次 topic 冷启动）").isNotNull();
 
         // 发现页能看到它（Jackson 把 JSON 数字反序列化成 Integer/Long 不定，统一按 Number 取 longValue 再比）
-        ResponseEntity<Map> latest = http.getForEntity(url("/api/notes/latest"), Map.class);
+        ResponseEntity<Map> latest = http.getForEntity(url("/api/notes/latest?size=50"), Map.class);
         List<?> records = (List<?>) data(latest).get("records");
         assertThat(records).extracting(n -> ((Number) ((Map<?, ?>) n).get("id")).longValue())
                 .contains(noteId);
@@ -101,7 +101,7 @@ class NoteFlowE2ETest extends AbstractIntegrationTest {
         assertThat(done).as("审核消费者应驳回敏感笔记（含首次 topic 冷启动余量）").isNotNull();
 
         // 驳回笔记不出现在发现页
-        ResponseEntity<Map> latest = http.getForEntity(url("/api/notes/latest"), Map.class);
+        ResponseEntity<Map> latest = http.getForEntity(url("/api/notes/latest?size=50"), Map.class);
         List<?> records = (List<?>) data(latest).get("records");
         assertThat(records).extracting(n -> ((Number) ((Map<?, ?>) n).get("id")).longValue())
                 .doesNotContain(noteId);
