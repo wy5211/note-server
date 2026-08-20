@@ -67,9 +67,52 @@ open http://localhost:8180
 - [x] **Phase 2** 点赞三版迭代（测试 13/13 绿 + 压测报告）
 - [x] **Phase 3** 刷数据第一课 + 定时任务（测试 17/17 绿）
 - [x] **Phase 4** Feed 流推拉结合 + 热榜（测试 22/22 绿）
-- [ ] Phase 5 数据工程周：刷数据/在线迁移/事务传播
+- [x] **Phase 5** 数据工程周：刷数据/在线迁移/事务传播（测试 30/30 绿）
 - [ ] Phase 6 分布式事务：本地消息表 vs 事务消息
 - [ ] Phase 7 (可选) Elasticsearch + ShardingSphere
+
+## Phase 5 学到了什么（数据工程三重奏）
+
+### 一、刷数据：500w 老笔记补话题标签
+
+| 主题 | 落点 |
+|---|---|
+| 反面教材 | 一把 `UPDATE ... WHERE topic IS NULL`：巨事务/锁全表/undo 暴涨/主从延迟/中途 kill 回滚比执行还久 |
+| 正确四要素 | 游标分批（`id > cursor LIMIT 2000`）/ 幂等（`WHERE topic IS NULL` 天然可重跑）/ 限流（批间 sleep）/ 断点续跑（游标写 Redis） |
+| 造数 | `DataGenService` 多值 INSERT 批量（一条 SQL 2000 个 VALUES，网络往返摊薄两个数量级） |
+
+### 二、在线迁移：手工版 gh-ost（note.title VARCHAR(100)→300）
+
+```
+1.建影子表+DDL(影子无流量随便改) → 2.开双写(同事务同步新行) → 3.存量分批拷贝(INSERT IGNORE
+跳过双写行) → 4.校验(COUNT+抽样内容) → 5.原子切换(RENAME TABLE 一条命令无中间态) → 6.观察后DROP
+```
+
+- 为什么不直接 ALTER：DDL 三档速度 instant（加列秒级）/ inplace / **copy（改列类型必须走）**
+  —— 8000w 行 copy = 锁写小时级事故
+- 双写与存量拷贝的重叠：`INSERT IGNORE` 先到者赢（gh-ost 同款竞态处理）
+- 手工版的代码侵入（NoteService 挂双写钩子）正是工具的价值：gh-ost 用 binlog 做增量，业务零改动
+
+### 三、事务进阶
+
+| 主题 | 落点 |
+|---|---|
+| REQUIRES_NEW | 审计日志「主业务回滚我也要活」—— 迁移步骤日志同款（学以致用） |
+| NESTED | 保存点「部分回滚」：外层存活、内层消失；与 REQUIRES_NEW 的物理事务区别 |
+| 失效现场 1 | 自调用绕过代理（实证：日志陪葬）；修法 = ObjectProvider 注入自身代理 |
+| 失效现场 2 | 异常被 catch 吞（实证：照常提交）；修法 = setRollbackOnly() |
+| 失效现场 3 | private 方法无法被子类重写（实证：事务压根没开） |
+| 大事务 | Phase 0 病灶回顾：事务内只做 DB 写，慢操作移出事务或移出请求 |
+
+## Phase 5 踩坑档案
+
+15. **`@Transactional` 的注解属性写法**：`@Transactional(Propagation.REQUIRES_NEW)` 编译不过 ——
+    value() 是 String（事务管理器名），传播行为要写 `propagation = ...` 命名属性。
+    该语法错还级联出「Lombok 生成方法找不到符号」的全套假错 —— 注解处理一轮失败殃及全轮
+16. **自注入循环依赖**：构造器注入自身 Bean 会 `BeanCurrentlyInCreation`；`@Lazy` 放字段上
+    不会被 Lombok 复制到构造参数（等于没加）—— `ObjectProvider<T>` 延迟解析是零配置正解
+17. **包私有方法的事务行为有版本差异**（实测被回滚了）：教学换 private（Spring 文档钦定失效），
+    失效演示要选「文档保证」的场景，别选行为摇摆的
 
 ## Phase 4 学到了什么
 

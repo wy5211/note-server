@@ -39,6 +39,8 @@ public class NoteService {
     private final UserMapper userMapper;
     private final NoteEventProducer noteEventProducer;
     private final org.springframework.data.redis.core.StringRedisTemplate redis;
+    private final com.example.note.data.MigrationState migrationState;
+    private final com.example.note.data.ShadowNoteMapper shadowNoteMapper;
 
     /**
      * 发布笔记（异步版）：事务体瘦身成「纯 DB 写」，耗时外部调用全部出走 MQ。
@@ -68,6 +70,13 @@ public class NoteService {
                 img.setSort(i);
                 noteImageMapper.insert(img);
             }
+        }
+
+        // Phase 5 在线迁移期双写：同一事务里把新行同步进影子表（同库两表，事务天然罩住一致性）。
+        // 这是手工版 gh-ost 的「代码侵入」成本 —— 真实工具用 binlog 解析增量，业务零改动，
+        // 我们手动写出来才知道工具替我们挡了多少事
+        if (migrationState.isDualWriteEnabled()) {
+            shadowNoteMapper.dualWrite(note.getId());
         }
 
         // 事务提交后才发事件（原因见 NoteEventProducer 决策 1）
